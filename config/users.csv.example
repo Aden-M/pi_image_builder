@@ -1,0 +1,14 @@
+# Users to create in the image. Copy this file to config/users.csv and edit.
+#
+# Columns: username,password,groups,shell,ssh_keys
+#   username : login name (required, no spaces)
+#   password : plaintext password. Blank => account is locked (SSH-key login only).
+#   groups   : ';'-separated extra groups; include 'sudo' for admin.
+#              Groups that don't exist on the base image are skipped.
+#   shell    : 'zsh' (default if blank) or 'bash'
+#   ssh_keys : ';'-separated key filenames located in the keys/ directory;
+#              their contents are appended to that user's ~/.ssh/authorized_keys.
+#
+# Notes: do NOT put spaces around commas, and avoid commas inside any field.
+username,password,groups,shell,ssh_keys
+pi,pi,sudo;dialout;audio;video;plugdev;netdev,zsh,authorized_keys

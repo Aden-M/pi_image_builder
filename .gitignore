@@ -1,13 +1,29 @@
-# NVIDIA Binaries
-*.tbz2
-Linux_for_Tegra/
+# Downloaded base images
+ubuntu-*.img.xz
+SHA256SUMS
 
-# Generated Images
+# Working / generated images
 *.img
+*.img.xz
+raspi4b_headless.img
+
+# Build state and mount points
+.build_state
+mnt/
+mnt_interactive/
+
+# Staged zsh plugin clones (fetched by 00_build_zsh_plugins.sh)
+source_modifications/rootfs/usr/share/zsh-plugins/
 
 # Sensitive Data
 keys/*
 !keys/.gitkeep
 
-# Local modifications
+# Real config (may contain passwords / Wi-Fi secrets); templates are committed
+config/users.csv
+config/network.conf
+
+# Local modifications (staged payload)
 source_modifications/rootfs/opt/provisioning/keys/*
+source_modifications/rootfs/opt/provisioning/users.csv
+source_modifications/rootfs/opt/provisioning/network.conf

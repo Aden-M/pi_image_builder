@@ -1,51 +1,67 @@
 #!/bin/bash
+# 07_interactive_mount.sh (Run on Host, requires sudo)
+# Self-contained: loop-mounts the working image, drops you into an interactive
+# aarch64 chroot for manual inspection/tweaks, then fully unmounts and detaches
+# the loop device on exit. Independent of the 04/05/06 build-state flow.
 
-# Exit immediately if a command exits with a non-zero status
 set -e
 
-# --- Configuration ---
-# t234 = Orin, t194 = Xavier, t186 = TX2, t210 = Nano/TX1
-JETSON_SOC="t234" 
 WORKSPACE_ROOT="$(pwd)"
-ROOTFS_DIR="${1:-${WORKSPACE_ROOT}/Linux_for_Tegra/rootfs}"
-ROOTFS_DIR="$(realpath "$ROOTFS_DIR")"
-# ---------------------
+WORK_IMAGE="${1:-${WORKSPACE_ROOT}/raspi4b_headless.img}"
+MOUNT_DIR="${WORKSPACE_ROOT}/mnt_interactive"
+QEMU_BIN="/usr/bin/qemu-aarch64-static"
+BOOT_PART_NUM="1"
+ROOT_PART_NUM="2"
 
-echo "Preparing INTERACTIVE chroot environment in: $ROOTFS_DIR"
-echo "Target Architecture (SOC): $JETSON_SOC"
+if [ ! -f "$WORK_IMAGE" ]; then
+    echo "Error: image $WORK_IMAGE not found."
+    exit 1
+fi
+if [ ! -f "$QEMU_BIN" ]; then
+    echo "Error: $QEMU_BIN not found. Install: sudo apt-get install -y qemu-user-static binfmt-support"
+    exit 1
+fi
 
-# 1. Define the foolproof cleanup function
+echo "Attaching ${WORK_IMAGE} to a loop device..."
+LOOP_DEV="$(sudo losetup -Pf --show "$WORK_IMAGE")"
+
 cleanup() {
-    echo -e "\nExiting interactive session. Unmounting chroot directories..."
-    sudo umount "$ROOTFS_DIR/etc/resolv.conf" 2>/dev/null || true
-    sudo umount "$ROOTFS_DIR/proc" 2>/dev/null || true
-    sudo umount "$ROOTFS_DIR/sys" 2>/dev/null || true
-    sudo umount "$ROOTFS_DIR/dev/pts" 2>/dev/null || true
-    sudo umount "$ROOTFS_DIR/dev" 2>/dev/null || true
+    echo -e "\nExiting interactive session. Cleaning up..."
+    sudo rm -f "${MOUNT_DIR}/usr/bin/qemu-aarch64-static" 2>/dev/null || true
+    sudo umount "$MOUNT_DIR/proc" 2>/dev/null || true
+    sudo umount "$MOUNT_DIR/sys" 2>/dev/null || true
+    sudo umount "$MOUNT_DIR/dev/pts" 2>/dev/null || true
+    sudo umount "$MOUNT_DIR/dev" 2>/dev/null || true
+    # Restore the image's default resolv.conf symlink before unmounting.
+    if mountpoint -q "$MOUNT_DIR"; then
+        sudo rm -f "$MOUNT_DIR/etc/resolv.conf"
+        sudo ln -sf ../run/systemd/resolve/stub-resolv.conf "$MOUNT_DIR/etc/resolv.conf"
+    fi
+    sudo umount "$MOUNT_DIR/boot/firmware" 2>/dev/null || true
+    sudo umount "$MOUNT_DIR" 2>/dev/null || true
+    sudo losetup -d "$LOOP_DEV" 2>/dev/null || true
+    rmdir "$MOUNT_DIR" 2>/dev/null || true
     echo "Cleanup finished."
 }
-
-# 2. TRAP: Bind the cleanup function to EXIT
-# This guarantees execution on normal exit, Ctrl+C (via bash exit), or a crash due to 'set -e'
 trap cleanup EXIT
 
-# 3. Ensure QEMU emulator is present
-sudo cp /usr/bin/qemu-aarch64-static "$ROOTFS_DIR/usr/bin/qemu-aarch64-static"
+mkdir -p "$MOUNT_DIR"
+sudo mount "${LOOP_DEV}p${ROOT_PART_NUM}" "$MOUNT_DIR"
+sudo mkdir -p "${MOUNT_DIR}/boot/firmware"
+sudo mount "${LOOP_DEV}p${BOOT_PART_NUM}" "${MOUNT_DIR}/boot/firmware"
 
-# 4. Mount sequence
-echo "Mounting host directories..."
-sudo mount --bind /dev "$ROOTFS_DIR/dev"
-sudo mount -t devpts devpts "$ROOTFS_DIR/dev/pts"
-sudo mount --bind /sys "$ROOTFS_DIR/sys"
-sudo mount --bind /proc "$ROOTFS_DIR/proc"
-sudo mount --bind /etc/resolv.conf "$ROOTFS_DIR/etc/resolv.conf"
+sudo cp "$QEMU_BIN" "${MOUNT_DIR}/usr/bin/qemu-aarch64-static"
+sudo mount --bind /dev "$MOUNT_DIR/dev"
+sudo mount -t devpts devpts "$MOUNT_DIR/dev/pts"
+sudo mount --bind /sys "$MOUNT_DIR/sys"
+sudo mount --bind /proc "$MOUNT_DIR/proc"
+sudo rm -f "$MOUNT_DIR/etc/resolv.conf"
+sudo cp /etc/resolv.conf "$MOUNT_DIR/etc/resolv.conf"
 
 echo "--------------------------------------------------------"
-echo " Entering interactive chroot shell."
+echo " Entering interactive chroot shell (aarch64)."
 echo " Type 'exit' or press Ctrl+D to leave and trigger cleanup."
 echo "--------------------------------------------------------"
+sudo chroot "$MOUNT_DIR" /bin/bash || true
 
-# 5. Enter the environment with an interactive bash shell
-sudo chroot "$ROOTFS_DIR" /bin/bash
-
-# --- Control returns here upon exit, and the trap automatically handles unmounting ---
+# Cleanup runs automatically via the EXIT trap.
